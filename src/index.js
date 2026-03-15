@@ -2,6 +2,9 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import express from 'express';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
 import * as icd10 from './tools/icd10.js';
@@ -132,9 +135,77 @@ server.tool(
 
 // --- Start ---
 
+const TOOL_COUNT = 10;
+
 const main = async () => {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  const port = process.env.PORT;
+
+  if (port) {
+    const app = express();
+    app.use(express.json());
+
+    app.get('/health', (_req, res) => {
+      res.json({ status: 'ok' });
+    });
+
+    app.get('/', (_req, res) => {
+      res.json({
+        name: 'mcp-healthcare',
+        version: '1.0.0',
+        tools: TOOL_COUNT,
+        transport: 'streamable-http',
+      });
+    });
+
+    const transports = {};
+
+    app.post('/mcp', async (req, res) => {
+      const sessionId = req.headers['mcp-session-id'];
+      let transport = transports[sessionId];
+
+      if (!transport) {
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+        });
+        transport.onclose = () => {
+          if (transport.sessionId) {
+            delete transports[transport.sessionId];
+          }
+        };
+        await server.connect(transport);
+        transports[transport.sessionId] = transport;
+      }
+
+      await transport.handleRequest(req, res, req.body);
+    });
+
+    app.get('/mcp', async (req, res) => {
+      const sessionId = req.headers['mcp-session-id'];
+      const transport = transports[sessionId];
+      if (!transport) {
+        res.status(400).json({ error: 'No active session. Send a POST to /mcp first.' });
+        return;
+      }
+      await transport.handleRequest(req, res);
+    });
+
+    app.delete('/mcp', async (req, res) => {
+      const sessionId = req.headers['mcp-session-id'];
+      const transport = transports[sessionId];
+      if (!transport) {
+        res.status(400).json({ error: 'No active session.' });
+        return;
+      }
+      await transport.handleRequest(req, res);
+    });
+
+    app.listen(parseInt(port, 10), () => {
+      console.log(`MCP healthcare server running on HTTP port ${port}`);
+    });
+  } else {
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+  }
 };
 
 main().catch((err) => {
