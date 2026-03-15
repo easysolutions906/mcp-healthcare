@@ -11,6 +11,8 @@ import * as icd10 from './tools/icd10.js';
 import * as npi from './tools/npi.js';
 import * as ndc from './tools/ndc.js';
 import * as dea from './tools/dea.js';
+import { authMiddleware, createKey, revokeKey, PLANS } from './keys.js';
+import { createCheckoutSession, handleWebhook } from './stripe.js';
 
 const server = new McpServer({
   name: 'mcp-healthcare',
@@ -154,7 +156,50 @@ const main = async () => {
         version: '1.0.0',
         tools: TOOL_COUNT,
         transport: 'streamable-http',
+        plans: PLANS,
       });
+    });
+
+    // --- Stripe checkout ---
+    app.post('/checkout', async (req, res) => {
+      try {
+        const { plan, success_url, cancel_url } = req.body;
+        const session = await createCheckoutSession(plan, success_url, cancel_url);
+        res.json(session);
+      } catch (err) {
+        res.status(400).json({ error: err.message });
+      }
+    });
+
+    // --- Stripe webhook (raw body needed for signature verification) ---
+    app.post('/webhook/stripe', express.raw({ type: 'application/json' }), (req, res) => {
+      try {
+        const result = handleWebhook(req.body, req.headers['stripe-signature']);
+        res.json({ received: true, result });
+      } catch (err) {
+        console.error('[webhook] Error:', err.message);
+        res.status(400).json({ error: err.message });
+      }
+    });
+
+    // --- Admin key management ---
+    const adminAuth = (req, res, next) => {
+      const secret = process.env.ADMIN_SECRET;
+      if (!secret || req.headers['x-admin-secret'] !== secret) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      next();
+    };
+
+    app.post('/admin/keys', adminAuth, (req, res) => {
+      const { plan, email } = req.body;
+      const result = createKey(plan, email);
+      res.json(result);
+    });
+
+    app.delete('/admin/keys/:key', adminAuth, (req, res) => {
+      const revoked = revokeKey(req.params.key);
+      res.json({ revoked });
     });
 
     const transports = {};
