@@ -1,6 +1,6 @@
 {
   "name": "@easysolutions906/mcp-healthcare",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "MCP server bundling healthcare data tools: ICD-10 codes, NPI provider lookup, NDC drug search, and DEA number validation",
   "type": "module",
   "bin": {
