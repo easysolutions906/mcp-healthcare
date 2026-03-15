@@ -1,0 +1,143 @@
+#!/usr/bin/env node
+
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+
+import * as icd10 from './tools/icd10.js';
+import * as npi from './tools/npi.js';
+import * as ndc from './tools/ndc.js';
+import * as dea from './tools/dea.js';
+
+const server = new McpServer({
+  name: 'mcp-healthcare',
+  version: '1.0.0',
+});
+
+// --- ICD-10 Tools ---
+
+server.tool(
+  'icd10_lookup',
+  'Look up an ICD-10-CM diagnosis code. Returns the code description, formatted code, and chapter information. Example: "E11.9" returns "Type 2 diabetes mellitus without complications".',
+  { code: z.string().describe('ICD-10-CM code to look up (e.g., "E11.9", "J06.9", "M54.5")') },
+  async ({ code }) => ({
+    content: [{ type: 'text', text: JSON.stringify(icd10.lookup(code), null, 2) }],
+  }),
+);
+
+server.tool(
+  'icd10_search',
+  `Search ${icd10.totalCodes.toLocaleString()} ICD-10-CM codes by keyword. Returns matching codes sorted by relevance. Useful for finding diagnosis codes when you know the condition name but not the code.`,
+  {
+    query: z.string().describe('Search term (e.g., "diabetes", "chest pain", "hypertension")'),
+    limit: z.number().optional().describe('Max results to return (default 25, max 100)'),
+  },
+  async ({ query, limit }) => ({
+    content: [{ type: 'text', text: JSON.stringify(icd10.search(query, limit), null, 2) }],
+  }),
+);
+
+server.tool(
+  'icd10_validate',
+  'Validate whether an ICD-10-CM code exists in the 2025 code set. Returns validity status, description if found, and chapter info.',
+  { code: z.string().describe('ICD-10-CM code to validate (e.g., "E11.9")') },
+  async ({ code }) => ({
+    content: [{ type: 'text', text: JSON.stringify(icd10.validate(code), null, 2) }],
+  }),
+);
+
+// --- NPI Tools ---
+
+server.tool(
+  'npi_search',
+  'Search the NPPES NPI Registry for healthcare providers by name, specialty, or location. Queries the live CMS registry in real-time.',
+  {
+    first_name: z.string().optional().describe('Provider first name'),
+    last_name: z.string().optional().describe('Provider last name'),
+    organization_name: z.string().optional().describe('Organization name'),
+    taxonomy_description: z.string().optional().describe('Specialty (e.g., "Cardiology", "Family Medicine")'),
+    city: z.string().optional().describe('City'),
+    state: z.string().optional().describe('2-letter state code (e.g., "CA", "NY")'),
+    postal_code: z.string().optional().describe('ZIP code'),
+    limit: z.number().optional().describe('Max results (default 10, max 200)'),
+  },
+  async (params) => ({
+    content: [{ type: 'text', text: JSON.stringify(await npi.search(params), null, 2) }],
+  }),
+);
+
+server.tool(
+  'npi_lookup',
+  'Look up a specific healthcare provider by their 10-digit NPI number. Returns full provider details including name, addresses, taxonomies, and identifiers from the live NPPES registry.',
+  { number: z.string().describe('10-digit NPI number (e.g., "1234567890")') },
+  async ({ number }) => ({
+    content: [{ type: 'text', text: JSON.stringify(await npi.lookup(number), null, 2) }],
+  }),
+);
+
+// --- NDC Tools ---
+
+server.tool(
+  'ndc_lookup',
+  `Look up a drug product by its National Drug Code (NDC). Searches ${ndc.totalProducts.toLocaleString()} products from the FDA NDC directory. Returns drug name, ingredients, manufacturer, dosage form, and more.`,
+  { ndc: z.string().describe('NDC code with or without dashes (e.g., "0002-1433-80" or "00021433")') },
+  async ({ ndc: code }) => ({
+    content: [{ type: 'text', text: JSON.stringify(ndc.lookup(code), null, 2) }],
+  }),
+);
+
+server.tool(
+  'ndc_search',
+  `Search ${ndc.totalProducts.toLocaleString()} FDA drug products by name, generic name, or manufacturer. Returns matching products sorted by relevance.`,
+  {
+    query: z.string().describe('Drug name or search term (e.g., "metformin", "lisinopril", "advil")'),
+    limit: z.number().optional().describe('Max results (default 25, max 100)'),
+  },
+  async ({ query, limit }) => ({
+    content: [{ type: 'text', text: JSON.stringify(ndc.search(query, limit), null, 2) }],
+  }),
+);
+
+server.tool(
+  'ndc_search_ingredient',
+  'Search FDA drug products by active ingredient name. Useful for finding all formulations containing a specific drug compound.',
+  {
+    ingredient: z.string().describe('Active ingredient name (e.g., "acetaminophen", "ibuprofen", "metformin")'),
+    limit: z.number().optional().describe('Max results (default 25, max 100)'),
+  },
+  async ({ ingredient, limit }) => ({
+    content: [{ type: 'text', text: JSON.stringify(ndc.searchIngredient(ingredient, limit), null, 2) }],
+  }),
+);
+
+// --- DEA Tools ---
+
+server.tool(
+  'dea_validate',
+  'Validate a DEA (Drug Enforcement Administration) registration number using the official Luhn-variant checksum algorithm. Identifies registrant type and detects formatting errors.',
+  { dea: z.string().describe('9-character DEA number to validate (e.g., "AB1234563")') },
+  async ({ dea: number }) => ({
+    content: [{ type: 'text', text: JSON.stringify(dea.validate(number), null, 2) }],
+  }),
+);
+
+server.tool(
+  'dea_generate_test',
+  'Generate a valid test DEA number for development and testing. The generated number passes checksum validation but is NOT a real DEA registration.',
+  { lastName: z.string().describe('Last name (first letter used as second character of the DEA number)') },
+  async ({ lastName }) => ({
+    content: [{ type: 'text', text: JSON.stringify(dea.generateTest(lastName), null, 2) }],
+  }),
+);
+
+// --- Start ---
+
+const main = async () => {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+};
+
+main().catch((err) => {
+  console.error('Failed to start MCP healthcare server:', err);
+  process.exit(1);
+});

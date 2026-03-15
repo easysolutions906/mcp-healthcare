@@ -1,0 +1,32 @@
+{
+  "name": "@easysolutions906/mcp-healthcare",
+  "version": "1.0.0",
+  "description": "MCP server bundling healthcare data tools: ICD-10 codes, NPI provider lookup, NDC drug search, and DEA number validation",
+  "type": "module",
+  "bin": {
+    "mcp-healthcare": "./src/index.js"
+  },
+  "main": "./src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "link-data": "ln -sf ../../../icd10-api/src/data/icd10.json src/data/icd10.json && ln -sf ../../../icd10-api/src/data/meta.json src/data/icd10-meta.json && ln -sf ../../../ndc-api/src/data/ndc.json src/data/ndc.json && ln -sf ../../../ndc-api/src/data/meta.json src/data/ndc-meta.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "zod": "^3.24.0"
+  },
+  "keywords": [
+    "mcp",
+    "healthcare",
+    "icd10",
+    "npi",
+    "ndc",
+    "dea",
+    "medical-coding",
+    "model-context-protocol"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
